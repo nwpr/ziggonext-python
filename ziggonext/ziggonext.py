@@ -117,7 +117,13 @@ class ZiggoNext:
             client.on_message = self._on_mqtt_client_message
             self.logger.debug("Connected to mqtt client.")
             self.mqttClientConnected = True
-            self._do_subscribe(self.session.houseHoldId + "/+/status")
+            self._do_subscribe("$SYS") # Does this work?
+            self._do_subscribe(self.session.houseHoldId) # Shouldn't be needed because of the below
+            self._do_subscribe(self.session.houseHoldId + "/#")
+            self._do_subscribe(self.session.houseHoldId + "/$SYS") # Shouldn't be needed because of the above
+            self._do_subscribe(self.session.houseHoldId + "/+/#") # Shouldn't be needed because of the above
+            self._do_subscribe(self.session.houseHoldId + "/+/status") # Shouldn't be needed because of the above
+            self._do_subscribe(self.session.houseHoldId + "/" + self.mqttClientId) # Shouldn't be needed because of the above
 
         elif resultCode == 5:
             self.logger.debug("Not authorized mqtt client. Retry to connect")
@@ -148,9 +154,12 @@ class ZiggoNext:
         state = payload["state"]
         if not deviceId in self.settopBoxes.keys():
             self.logger.debug("New settopbox found: {boxId}".format(boxId=deviceId))
-            self.settopBoxes[deviceId] = ZiggoNextBoxState(deviceId, state)
-            self._do_subscribe(self.session.houseHoldId + "/" + self.mqttClientId)
-            self._do_subscribe(self.session.houseHoldId + "/" + deviceId)
+            self.settopBoxes[deviceId] = ZiggoNextBoxState(deviceId, state)  
+            baseTopic = self.session.houseHoldId + "/" + deviceId
+            self._do_subscribe(baseTopic)
+            self._do_subscribe(baseTopic + "/#")
+            self._do_subscribe(baseTopic + "/$SYS")    
+            self._do_subscribe(baseTopic + "/status")       
             self._request_settop_box_state(deviceId)
         else:
             self.logger.debug(
