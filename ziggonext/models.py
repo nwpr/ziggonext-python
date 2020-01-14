@@ -7,6 +7,15 @@ class ZiggoNextSession:
         self.houseHoldId = houseHoldId
         self.oespToken = oespToken
 
+class ZiggoNextBox:
+    boxId: str
+    name: str
+    state: object
+    def __init__(self, id, name, state):
+        self.boxId = id
+        self.name = name
+        self.state = state
+
 class ZiggoNextBoxState:
     state: str
     boxId: str

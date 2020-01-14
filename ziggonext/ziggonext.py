@@ -7,7 +7,7 @@ import time
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import Client
 import requests
-from .models import ZiggoNextSession, ZiggoNextBoxState, ZiggoChannel
+from .models import ZiggoNextSession, ZiggoNextBoxState, ZiggoChannel, ZiggoNextBox
 from .exceptions import ZiggoNextConnectionError, ZiggoNextError
 
 from .const import (
@@ -17,19 +17,19 @@ from .const import (
     BOX_PLAY_STATE_REPLAY,
     ONLINE_RUNNING,
     ONLINE_STANDBY,
+    UNKNOWN,
     MEDIA_KEY_PLAY_PAUSE,
     MEDIA_KEY_CHANNEL_DOWN,
     MEDIA_KEY_CHANNEL_UP,
     MEDIA_KEY_POWER
 )
-
-API_URL_SESSION = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web/session"
-API_URL_TOKEN = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web/tokens/jwt"
-API_URL_LISTING_FORMAT = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web/listings/?byStationId={stationId}&byScCridImi={id}"
-API_URL_RECORDING_FORMAT = (
-    "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web/listings/?byScCridImi={id}"
-)
-API_URL_CHANNELS = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web/channels"
+API_BASE_URL = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web"
+API_URL_SESSION = API_BASE_URL + "/session"
+API_URL_TOKEN = API_BASE_URL + "/tokens/jwt"
+API_URL_LISTING_FORMAT = API_BASE_URL + "/listings/?byStationId={stationId}&byScCridImi={id}"
+API_URL_RECORDING_FORMAT = API_BASE_URL + "/listings/?byScCridImi={id}"
+API_URL_CHANNELS = API_BASE_URL + "/channels"
+API_URL_SETTOP_BOXES = API_BASE_URL + "/settopboxes/profile"
 DEFAULT_HOST = "obomsg.prod.nl.horizon.tv"
 DEFAULT_PORT = 443
 
@@ -76,29 +76,41 @@ class ZiggoNext:
         self.token = self._get_token(session)
         self.session = session
 
-    def _get_token(self, session):
-        """Get token from Ziggo Next"""
+    def _register_settop_boxes(self, session):
+        """Get settopxes"""
+        jsonResult = self._do_api_call(session, API_URL_SETTOP_BOXES)
+        for box in jsonResult["boxes"]:
+            if not box["boxType"] == "EOS":
+                continue
+            boxId = box["physicalDeviceId"]
+            self.settopBoxes[boxId] = ZiggoNextBox(boxId, box["customerDefinedName"], ZiggoNextBoxState(boxId, UNKNOWN))
+            
+
+
+
+    def _do_api_call(self, session, url):
+        """Executes api call and returns json object"""
         headers = {
             "X-OESP-Token": session.oespToken,
             "X-OESP-Username": self.username,
         }
-        response = requests.get(API_URL_TOKEN, headers=headers)
+        response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            jwt_token = response.json()
-
-            return jwt_token["token"]
+            return response.json()
         else:
-            raise ZiggoNextError(
-                "Unable to fetch token. oespToken: {token}".format(
-                    token=session.oespToken
-                )
-            )
-
+            raise ZiggoNextError("API call failed: " + str(response.status_code))
+    
+    def _get_token(self, session):
+        """Get token from Ziggo Next"""
+        jsonResult = self._do_api_call(session, API_URL_TOKEN)
+        return jsonResult["token"]
+        
     def initialize(self, logger, enableMqttLogging: bool = True):
         """Get token and start mqtt client for receiving data from Ziggo Next"""
         self.logger = logger
         self.logger.debug("Obtaining token...")
         self.get_session_and_token()
+        self._register_settop_boxes(self.session)
         self.load_channels(False)
         self.mqttClientId = _makeId(30)
         self.mqttClient = mqtt.Client(self.mqttClientId, transport="websockets")
@@ -124,6 +136,13 @@ class ZiggoNext:
             self._do_subscribe(self.session.houseHoldId + "/+/#") # Shouldn't be needed because of the above
             self._do_subscribe(self.session.houseHoldId + "/+/status") # Shouldn't be needed because of the above
             self._do_subscribe(self.session.houseHoldId + "/" + self.mqttClientId) # Shouldn't be needed because of the above
+            for box in self.settopBoxes.values():
+                baseTopic = self.session.houseHoldId + "/" + box.boxId
+                self._do_subscribe(baseTopic)
+                self._do_subscribe(baseTopic + "/#")
+                self._do_subscribe(baseTopic + "/$SYS")    
+                self._do_subscribe(baseTopic + "/status")       
+                self._request_settop_box_state(box.boxId)
 
         elif resultCode == 5:
             self.logger.debug("Not authorized mqtt client. Retry to connect")
@@ -144,30 +163,16 @@ class ZiggoNext:
         jsonPayload = json.loads(message.payload)
         self.logger.debug(jsonPayload)
         if "deviceType" in jsonPayload and jsonPayload["deviceType"] == "STB":
-            self._register_settop_box(jsonPayload)
+            self._update_settopbox_state(jsonPayload)
         if "status" in jsonPayload:
             self._update_settop_box(jsonPayload)
 
-    def _register_settop_box(self, payload):
+    def _update_settopbox_state(self, payload):
         """Registers a new settop box"""
         deviceId = payload["source"]
         state = payload["state"]
-        if not deviceId in self.settopBoxes.keys():
-            self.logger.debug("New settopbox found: {boxId}".format(boxId=deviceId))
-            self.settopBoxes[deviceId] = ZiggoNextBoxState(deviceId, state)  
-            baseTopic = self.session.houseHoldId + "/" + deviceId
-            self._do_subscribe(baseTopic)
-            self._do_subscribe(baseTopic + "/#")
-            self._do_subscribe(baseTopic + "/$SYS")    
-            self._do_subscribe(baseTopic + "/status")       
-            self._request_settop_box_state(deviceId)
-        else:
-            self.logger.debug(
-                "State for existing device: {boxId} set to {boxState}".format(
-                    boxId=deviceId, boxState=state
-                )
-            )
-        self.settopBoxes[deviceId].state = state
+        self.settopBoxes[deviceId].state.state = state
+        self._request_settop_box_state(deviceId)
 
     def _do_subscribe(self, topic):
         """Subscribes to mqtt topic"""
@@ -204,65 +209,65 @@ class ZiggoNext:
             stateSource = playerState["source"]
             speed = playerState["speed"]
             if sourceType == BOX_PLAY_STATE_REPLAY:
-                self.settopBoxes[deviceId].setSourceType(BOX_PLAY_STATE_REPLAY)
+                self.settopBoxes[deviceId].state.setSourceType(BOX_PLAY_STATE_REPLAY)
                 eventId = stateSource["eventId"]
-                self.settopBoxes[deviceId].setChannel(None)
-                self.settopBoxes[deviceId].setChannelTitle(None)
-                self.settopBoxes[deviceId].setTitle(
+                self.settopBoxes[deviceId].state.setChannel(None)
+                self.settopBoxes[deviceId].state.setChannelTitle(None)
+                self.settopBoxes[deviceId].state.setTitle(
                     "ReplayTV: " + self._get_recording_title(eventId)
                 )
-                self.settopBoxes[deviceId].setImage(self._get_recording_image(eventId))
-                self.settopBoxes[deviceId].setPaused(speed == 0)
+                self.settopBoxes[deviceId].state.setImage(self._get_recording_image(eventId))
+                self.settopBoxes[deviceId].state.setPaused(speed == 0)
             elif sourceType == BOX_PLAY_STATE_DVR:
-                self.settopBoxes[deviceId].setSourceType(BOX_PLAY_STATE_DVR)
+                self.settopBoxes[deviceId].state.setSourceType(BOX_PLAY_STATE_DVR)
                 recordingId = stateSource["recordingId"]
-                self.settopBoxes[deviceId].setChannel(None)
-                self.settopBoxes[deviceId].setChannelTitle(None)
-                self.settopBoxes[deviceId].setTitle(
+                self.settopBoxes[deviceId].state.setChannel(None)
+                self.settopBoxes[deviceId].state.setChannelTitle(None)
+                self.settopBoxes[deviceId].state.setTitle(
                     "Recording: " + self._get_recording_title(recordingId)
                 )
-                self.settopBoxes[deviceId].setImage(
+                self.settopBoxes[deviceId].state.setImage(
                     self._get_recording_image(recordingId)
                 )
-                self.settopBoxes[deviceId].setPaused(speed == 0)
+                self.settopBoxes[deviceId].state.setPaused(speed == 0)
             elif sourceType == BOX_PLAY_STATE_BUFFER:
-                self.settopBoxes[deviceId].setSourceType(BOX_PLAY_STATE_BUFFER)
+                self.settopBoxes[deviceId].state.setSourceType(BOX_PLAY_STATE_BUFFER)
                 channelId = stateSource["channelId"]
                 channel = self.channels[channelId]
                 eventId = stateSource["eventId"]
-                self.settopBoxes[deviceId].setChannel(channelId)
-                self.settopBoxes[deviceId].setChannelTitle(None)
-                self.settopBoxes[deviceId].setTitle(
+                self.settopBoxes[deviceId].state.setChannel(channelId)
+                self.settopBoxes[deviceId].state.setChannelTitle(None)
+                self.settopBoxes[deviceId].state.setTitle(
                     "Uitgesteld: " + self._get_recording_title(eventId)
                 )
-                self.settopBoxes[deviceId].setImage(channel.streamImage)
-                self.settopBoxes[deviceId].setPaused(speed == 0)
+                self.settopBoxes[deviceId].state.setImage(channel.streamImage)
+                self.settopBoxes[deviceId].state.setPaused(speed == 0)
             elif playerState["sourceType"] == BOX_PLAY_STATE_CHANNEL:
-                self.settopBoxes[deviceId].setSourceType(BOX_PLAY_STATE_CHANNEL)
+                self.settopBoxes[deviceId].state.setSourceType(BOX_PLAY_STATE_CHANNEL)
                 channelId = stateSource["channelId"]
                 eventId = stateSource["eventId"]
                 channel = self.channels[channelId]
-                self.settopBoxes[deviceId].setChannel(channelId)
-                self.settopBoxes[deviceId].setChannelTitle(channel.title)
-                self.settopBoxes[deviceId].setTitle(
+                self.settopBoxes[deviceId].state.setChannel(channelId)
+                self.settopBoxes[deviceId].state.setChannelTitle(channel.title)
+                self.settopBoxes[deviceId].state.setTitle(
                     self._get_channel_title(channelId, eventId)
                 )
-                self.settopBoxes[deviceId].setImage(channel.streamImage)
-                self.settopBoxes[deviceId].setPaused(False)
+                self.settopBoxes[deviceId].state.setImage(channel.streamImage)
+                self.settopBoxes[deviceId].state.setPaused(False)
             else:
-                self.settopBoxes[deviceId].setSourceType(BOX_PLAY_STATE_CHANNEL)
+                self.settopBoxes[deviceId].state.setSourceType(BOX_PLAY_STATE_CHANNEL)
                 eventId = stateSource["eventId"]
-                self.settopBoxes[deviceId].setChannel(None)
-                self.settopBoxes[deviceId].setTitle("Playing something...")
-                self.settopBoxes[deviceId].setImage(None)
-                self.settopBoxes[deviceId].setPaused(speed == 0)
+                self.settopBoxes[deviceId].state.setChannel(None)
+                self.settopBoxes[deviceId].state.setTitle("Playing something...")
+                self.settopBoxes[deviceId].state.setImage(None)
+                self.settopBoxes[deviceId].state.setPaused(speed == 0)
         except Exception as error:
             self.logger.error(error)
     
 
     def get_settop_box_state(self, boxId: str):
         """Retuns the state from given settop box"""
-        return self.settopBoxes[boxId]
+        return self.settopBoxes[boxId].state.state
 
     def _send_key_to_box(self, boxId: str, key: str):
         """Sends emulated (remote) key press to settopbox"""
@@ -293,38 +298,43 @@ class ZiggoNext:
 
     def pause(self, boxId):
         """Pauses the given settopbox"""
-        boxState = self.settopBoxes[boxId]
+        boxState = self.settopBoxes[boxId].state
         if boxState.state == ONLINE_RUNNING and not boxState.paused:
             self._send_key_to_box(boxId, MEDIA_KEY_PLAY_PAUSE)
 
     def play(self, boxId):
         """Resumes the settopbox"""
-        boxState = self.settopBoxes[boxId]
-        if self.settopBoxes[boxId].state == ONLINE_RUNNING and boxState.paused:
+        boxState = self.settopBoxes[boxId].state
+        if boxState.state == ONLINE_RUNNING and boxState.paused:
             self._send_key_to_box(boxId, MEDIA_KEY_PLAY_PAUSE)
 
     def next_channel(self, boxId):
         """Select the next channel for given settop box."""
-        if self.settopBoxes[boxId].state == ONLINE_RUNNING:
+        boxState = self.settopBoxes[boxId].state
+        if boxState.state == ONLINE_RUNNING:
             self._send_key_to_box(boxId, MEDIA_KEY_CHANNEL_UP)
 
     def previous_channel(self, boxId):
         """Select the previous channel for given settop box."""
-        if self.settopBoxes[boxId].state == ONLINE_RUNNING:
+        boxState = self.settopBoxes[boxId].state
+        if boxState.state == ONLINE_RUNNING:
             self._send_key_to_box(boxId, MEDIA_KEY_CHANNEL_DOWN)
 
     def turn_on(self, boxId):
         """Turn the settop box on."""
-        if self.settopBoxes[boxId].state == ONLINE_STANDBY:
+        boxState = self.settopBoxes[boxId].state
+        if boxState.state.state == ONLINE_STANDBY:
             self._send_key_to_box(boxId, MEDIA_KEY_POWER)
 
     def turn_off(self, boxId):
         """Turn the settop box off."""
-        if self.settopBoxes[boxId].state == ONLINE_RUNNING:
+        boxState = self.settopBoxes[boxId].state
+        if boxState.state == ONLINE_RUNNING:
            self._send_key_to_box(boxId, MEDIA_KEY_POWER)
 
     def is_available(self, boxId):
-        state = self.settopBoxes[boxId].state
+        boxState = self.settopBoxes[boxId].state
+        state = boxState.state
         return (state == ONLINE_RUNNING or state == ONLINE_STANDBY)
 
     def _get_recording_title(self, scCridImi):
@@ -374,7 +384,7 @@ class ZiggoNext:
             if updateState:
                 self.logger.debug("Updating boxes with new channel info...")
                 for deviceId in self.settopBoxes.keys():
-                    box = self.settopBoxes[deviceId]
+                    box = self.settopBoxes[deviceId].state
                     channelId = box.channelId
                     if channelId is not None:
                         box.setImage(self.channels[channelId].streamImage)
