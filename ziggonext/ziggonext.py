@@ -172,7 +172,10 @@ class ZiggoNext:
         deviceId = payload["source"]
         state = payload["state"]
         self.settopBoxes[deviceId].state.state = state
-        self._request_settop_box_state(deviceId)
+        if state == ONLINE_RUNNING:            
+            self._request_settop_box_state(deviceId)
+        else:
+            self.settopBoxes[deviceId].reset(state)
 
     def _do_subscribe(self, topic):
         """Subscribes to mqtt topic"""
@@ -323,7 +326,7 @@ class ZiggoNext:
     def turn_on(self, boxId):
         """Turn the settop box on."""
         boxState = self.settopBoxes[boxId].state
-        if boxState.state.state == ONLINE_STANDBY:
+        if boxState.state == ONLINE_STANDBY:
             self._send_key_to_box(boxId, MEDIA_KEY_POWER)
 
     def turn_off(self, boxId):

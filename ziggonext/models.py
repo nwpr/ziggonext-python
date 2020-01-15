@@ -15,6 +15,9 @@ class ZiggoNextBox:
         self.boxId = id
         self.name = name
         self.state = state
+    
+    def reset(self, state:str):
+        self.state = ZiggoNextBoxState(self.boxId, state)
 
 class ZiggoNextBoxState:
     state: str
