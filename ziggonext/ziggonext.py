@@ -3,6 +3,7 @@ import json
 from logging import Logger
 import random
 import time
+import sys, traceback
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import Client
@@ -363,7 +364,8 @@ class ZiggoNext:
         )
         if response.status_code == 200:
             content = response.json()
-            return content["listings"][0]["program"]["title"]
+            if len(content["listings"]) > 0:
+                return content["listings"][0]["program"]["title"]
         return None
 
     def load_channels(self, updateState: bool = True):
