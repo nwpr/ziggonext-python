@@ -24,23 +24,17 @@ from .const import (
     MEDIA_KEY_CHANNEL_UP,
     MEDIA_KEY_POWER
 )
-# API_BASE_URL = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web"
-# API_URL_SESSION = API_BASE_URL + "/session"
-# API_URL_TOKEN = API_BASE_URL + "/tokens/jwt"
-# API_URL_LISTING_FORMAT = API_BASE_URL + "/listings/?byStationId={stationId}&byScCridImi={id}"
-# API_URL_RECORDING_FORMAT = API_BASE_URL + "/listings/?byScCridImi={id}"
-# API_URL_CHANNELS = API_BASE_URL + "/channels"
-# API_URL_SETTOP_BOXES = API_BASE_URL + "/settopboxes/profile"
-# DEFAULT_HOST = "obomsg.prod.nl.horizon.tv"
+
 DEFAULT_PORT = 443
 COUNTRY_URLS = {
     "nl": "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web",
-    "ch": "https://web-api-prod-obo.horizon.tv/oesp/v3/CH/eng/web"
+    "ch": "https://web-api-prod-obo.horizon.tv/oesp/v3/CH/eng/web",
+    "be": "https://web-api-prod-obo.horizon.tv/oesp/v3/BE/nld/web"
 }
 
 
 def _makeId(stringLength=10):
-    letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     return "".join(random.choice(letters) for i in range(stringLength))
 
 
@@ -108,7 +102,6 @@ class ZiggoNext:
                 continue
             boxId = box["physicalDeviceId"]
             self.settopBoxes[boxId] = ZiggoNextBox(boxId, box["customerDefinedName"], ZiggoNextBoxState(boxId, UNKNOWN))
-            
 
 
 
@@ -162,12 +155,13 @@ class ZiggoNext:
             self._do_subscribe(self.session.houseHoldId + "/+/status") # Shouldn't be needed because of the above
             self._do_subscribe(self.session.houseHoldId + "/" + self.mqttClientId) # Shouldn't be needed because of the above
             for box in self.settopBoxes.values():
+                self._exit_from_standby(box.boxId)       
+                self._request_settop_box_state(box.boxId)
                 baseTopic = self.session.houseHoldId + "/" + box.boxId
                 self._do_subscribe(baseTopic)
                 self._do_subscribe(baseTopic + "/#")
                 self._do_subscribe(baseTopic + "/$SYS")    
-                self._do_subscribe(baseTopic + "/status")       
-                self._request_settop_box_state(box.boxId)
+                self._do_subscribe(baseTopic + "/status")
 
         elif resultCode == 5:
             self.logger.debug("Not authorized mqtt client. Retry to connect")
@@ -224,6 +218,17 @@ class ZiggoNext:
         payload = {
             "id": _makeId(8),
             "type": "CPE.getUiStatus",
+            "source": self.mqttClientId,
+        }
+        self.mqttClient.publish(topic, json.dumps(payload))
+    
+    def _exit_from_standby(self, deviceId):
+        """Sends mqtt message to receive state from settop box"""
+        self.logger.debug("Exit from standby " + self.settopBoxes[deviceId].name)
+        topic = self.session.houseHoldId + "/" + deviceId
+        payload = {
+            "id": _makeId(8),
+            "type": "CPE.exitFromStandByMode",
             "source": self.mqttClientId,
         }
         self.mqttClient.publish(topic, json.dumps(payload))
