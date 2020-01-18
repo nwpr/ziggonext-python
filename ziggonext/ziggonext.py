@@ -24,15 +24,19 @@ from .const import (
     MEDIA_KEY_CHANNEL_UP,
     MEDIA_KEY_POWER
 )
-API_BASE_URL = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web"
-API_URL_SESSION = API_BASE_URL + "/session"
-API_URL_TOKEN = API_BASE_URL + "/tokens/jwt"
-API_URL_LISTING_FORMAT = API_BASE_URL + "/listings/?byStationId={stationId}&byScCridImi={id}"
-API_URL_RECORDING_FORMAT = API_BASE_URL + "/listings/?byScCridImi={id}"
-API_URL_CHANNELS = API_BASE_URL + "/channels"
-API_URL_SETTOP_BOXES = API_BASE_URL + "/settopboxes/profile"
-DEFAULT_HOST = "obomsg.prod.nl.horizon.tv"
+# API_BASE_URL = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web"
+# API_URL_SESSION = API_BASE_URL + "/session"
+# API_URL_TOKEN = API_BASE_URL + "/tokens/jwt"
+# API_URL_LISTING_FORMAT = API_BASE_URL + "/listings/?byStationId={stationId}&byScCridImi={id}"
+# API_URL_RECORDING_FORMAT = API_BASE_URL + "/listings/?byScCridImi={id}"
+# API_URL_CHANNELS = API_BASE_URL + "/channels"
+# API_URL_SETTOP_BOXES = API_BASE_URL + "/settopboxes/profile"
+# DEFAULT_HOST = "obomsg.prod.nl.horizon.tv"
 DEFAULT_PORT = 443
+COUNTRY_URLS = {
+    "nl": "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web",
+    "ch": "https://web-api-prod-obo.horizon.tv/oesp/v3/CH/eng/web"
+}
 
 
 def _makeId(stringLength=10):
@@ -45,7 +49,7 @@ class ZiggoNext:
     mqttClient: Client
     logger: Logger
 
-    def __init__(self, username: str, password: str) -> None:
+    def __init__(self, username: str, password: str, countryCode: str = "nl") -> None:
         """Initialize connection with Ziggo Next"""
         self.username = username
         self.password = password
@@ -57,12 +61,30 @@ class ZiggoNext:
         self.mqttClientConnected = False
         self.settopBoxes = {}
         self.channels = {}
+        self._createUrls(countryCode)
 
+    def _createUrls(self, countryCode: str):
+        # API_BASE_URL = "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web"
+        # API_URL_SESSION = API_BASE_URL + "/session"
+        # API_URL_TOKEN = API_BASE_URL + "/tokens/jwt"
+        # API_URL_LISTING_FORMAT = API_BASE_URL + "/listings/?byStationId={stationId}&byScCridImi={id}"
+        # API_URL_RECORDING_FORMAT = API_BASE_URL + "/listings/?byScCridImi={id}"
+        # API_URL_CHANNELS = API_BASE_URL + "/channels"
+        # API_URL_SETTOP_BOXES = API_BASE_URL + "/settopboxes/profile"
+        # DEFAULT_HOST = "obomsg.prod.nl.horizon.tv"
+        baseUrl = COUNTRY_URLS[countryCode]
+        self._api_url_session =  baseUrl + "/session"
+        self._api_url_token =  baseUrl + "/tokens/jwt"
+        self._api_url_listing_format =  baseUrl + "/listings/?byStationId={stationId}&byScCridImi={id}"
+        self._api_url_recording_format =  baseUrl + "/listings/?byScCridImi={id}"
+        self._api_url_channels =  baseUrl + "/channels"
+        self._api_url_settop_boxes =  baseUrl + "/settopboxes/profile"
+        self._mqtt_broker = "obomsg.prod.{code}.horizon.tv".format(code = countryCode)
 
     def get_session(self):
         """Get Ziggo Next Session information"""
         payload = {"username": self.username, "password": self.password}
-        response = requests.post(API_URL_SESSION, json=payload)
+        response = requests.post(self._api_url_session, json=payload)
         if response.status_code == 200:
             session = response.json()
             self.logger.debug(session)
@@ -80,7 +102,7 @@ class ZiggoNext:
 
     def _register_settop_boxes(self, session):
         """Get settopxes"""
-        jsonResult = self._do_api_call(session, API_URL_SETTOP_BOXES)
+        jsonResult = self._do_api_call(session, self._api_url_settop_boxes)
         for box in jsonResult["boxes"]:
             if not box["boxType"] == "EOS":
                 continue
@@ -104,7 +126,7 @@ class ZiggoNext:
     
     def _get_token(self, session):
         """Get token from Ziggo Next"""
-        jsonResult = self._do_api_call(session, API_URL_TOKEN)
+        jsonResult = self._do_api_call(session, self._api_url_token)
         token = jsonResult["token"]
         self.logger.debug("Fetched a token: %s", jsonResult)
         return token
@@ -123,7 +145,7 @@ class ZiggoNext:
             self.mqttClient.enable_logger(logger)
         self.mqttClient.on_connect = self._on_mqtt_client_connect
         self.mqttClient.on_disconnect = self._on_mqtt_client_disconnect
-        self.mqttClient.connect(DEFAULT_HOST, DEFAULT_PORT)
+        self.mqttClient.connect(self._mqtt_broker, DEFAULT_PORT)
         self.mqttClient.loop_start()
 
     def _on_mqtt_client_connect(self, client, userdata, flags, resultCode):
@@ -151,7 +173,7 @@ class ZiggoNext:
             self.logger.debug("Not authorized mqtt client. Retry to connect")
             self.get_session_and_token()
             client.username_pw_set(self.session.houseHoldId, self.token)
-            client.connect(DEFAULT_HOST, DEFAULT_PORT)
+            client.connect(self._mqtt_broker, DEFAULT_PORT)
             client.loop_start()
         else:
             raise ZiggoNextError("Could not connect to Mqtt server")
@@ -242,9 +264,9 @@ class ZiggoNext:
             channel = self.channels[channelId]
             eventId = stateSource["eventId"]
             self.settopBoxes[deviceId].state.setChannel(channelId)
-            self.settopBoxes[deviceId].state.setChannelTitle(None)
+            self.settopBoxes[deviceId].state.setChannelTitle(channel.title)
             self.settopBoxes[deviceId].state.setTitle(
-                "Uitgesteld: " + self._get_recording_title(eventId)
+                "Delayed: " + self._get_recording_title(eventId)
             )
             self.settopBoxes[deviceId].state.setImage(channel.streamImage)
             self.settopBoxes[deviceId].state.setPaused(speed == 0)
@@ -342,7 +364,7 @@ class ZiggoNext:
 
     def _get_recording_title(self, scCridImi):
         """Get recording title."""
-        response = requests.get(API_URL_RECORDING_FORMAT.format(id=scCridImi))
+        response = requests.get(self._api_url_recording_format.format(id=scCridImi))
         if response.status_code == 200:
             content = response.json()
             return content["listings"][0]["program"]["title"]
@@ -350,7 +372,7 @@ class ZiggoNext:
 
     def _get_recording_image(self, scCridImi):
         """Get recording image."""
-        response = requests.get(API_URL_RECORDING_FORMAT.format(id=scCridImi))
+        response = requests.get(self._api_url_recording_format.format(id=scCridImi))
         if response.status_code == 200:
             content = response.json()
             return content["listings"][0]["program"]["images"][0]["url"]
@@ -359,7 +381,7 @@ class ZiggoNext:
     def _get_channel_title(self, channelId, scCridImi):
         """Get channel title"""
         response = requests.get(
-            API_URL_LISTING_FORMAT.format(stationId=channelId, id=scCridImi)
+            self._api_url_listing_format.format(stationId=channelId, id=scCridImi)
         )
         if response.status_code == 200:
             content = response.json()
@@ -369,7 +391,7 @@ class ZiggoNext:
 
     def load_channels(self, updateState: bool = True):
         """Refresh channels list for now-playing data."""
-        response = requests.get(API_URL_CHANNELS)
+        response = requests.get(self._api_url_channels)
         if response.status_code == 200:
             content = response.json()
 
