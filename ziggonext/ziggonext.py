@@ -264,9 +264,9 @@ class ZiggoNext:
             channel = self.channels[channelId]
             eventId = stateSource["eventId"]
             self.settopBoxes[deviceId].state.setChannel(channelId)
-            self.settopBoxes[deviceId].state.setChannelTitle(None)
+            self.settopBoxes[deviceId].state.setChannelTitle(channel.title)
             self.settopBoxes[deviceId].state.setTitle(
-                "Uitgesteld: " + self._get_recording_title(eventId)
+                "Delayed: " + self._get_recording_title(eventId)
             )
             self.settopBoxes[deviceId].state.setImage(channel.streamImage)
             self.settopBoxes[deviceId].state.setPaused(speed == 0)
