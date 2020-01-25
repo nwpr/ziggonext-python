@@ -212,10 +212,14 @@ class ZiggoNextBox:
                 self.info.setPaused(speed == 0)
         elif uiStatus == "apps":
             appsState = statusPayload["appsState"]
+            logoPath = appsState["logoPath"]
+            if not logoPath.startswith("http:"):
+                logoPath = "https:" + logoPath
             self.info.setSourceType(BOX_PLAY_STATE_APP)
             self.info.setChannel(None)
+            self.info.setChannelTitle(appsState["appName"])
             self.info.setTitle(appsState["appName"])
-            self.info.setImage(appsState["logoPath"])
+            self.info.setImage(logoPath)
             self.info.setPaused(False)
     
     def _get_recording_title(self, scCridImi):
