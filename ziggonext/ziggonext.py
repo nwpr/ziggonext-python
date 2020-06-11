@@ -8,7 +8,7 @@ import sys, traceback
 import requests
 from .models import ZiggoNextSession, ZiggoChannel
 from .ziggonextbox import ZiggoNextBox
-from .exceptions import ZiggoNextConnectionError, ZiggoNextError
+from .exceptions import ZiggoNextConnectionError, ZiggoNextAuthenticationError
 
 from .const import (
     BOX_PLAY_STATE_BUFFER,
@@ -21,16 +21,11 @@ from .const import (
     MEDIA_KEY_PLAY_PAUSE,
     MEDIA_KEY_CHANNEL_DOWN,
     MEDIA_KEY_CHANNEL_UP,
-    MEDIA_KEY_POWER
+    MEDIA_KEY_POWER,
+    COUNTRY_URLS_HTTP
 )
 
 DEFAULT_PORT = 443
-COUNTRY_URLS = {
-    "nl": "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web",
-    "ch": "https://web-api-prod-obo.horizon.tv/oesp/v3/CH/eng/web",
-    "be": "https://web-api-prod-obo.horizon.tv/oesp/v3/BE/nld/web"
-}
-
 
 def _makeId(stringLength=10):
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -48,32 +43,44 @@ class ZiggoNext:
         self.token = None
         self.session = None
         self.logger = None
-        self.settopBoxes = {}
+        self.settop_boxes = {}
         self.channels = {}
         self._country_code = country_code
         self._createUrls()
 
     def _createUrls(self):
-        baseUrl = COUNTRY_URLS[self._country_code]
+        baseUrl = COUNTRY_URLS_HTTP[self._country_code]
         self._api_url_session =  baseUrl + "/session"
         self._api_url_token =  baseUrl + "/tokens/jwt"
-        self._api_url_listing_format =  baseUrl + "/listings/?byStationId={stationId}&byScCridImi={id}"
-        self._api_url_recording_format =  baseUrl + "/listings/?byScCridImi={id}"
         self._api_url_channels =  baseUrl + "/channels"
         self._api_url_settop_boxes =  baseUrl + "/settopboxes/profile"
 
     def get_session(self):
         """Get Ziggo Next Session information"""
         payload = {"username": self.username, "password": self.password}
-        response = requests.post(self._api_url_session, json=payload)
-        if response.status_code == 200:
+        try:
+            response = requests.post(self._api_url_session, json=payload)
+        except (Exception):
+            raise ZiggoNextConnectionError("Unknown connection failure")
+
+        if not response.ok:
+            status = response.json()
+            self.logger.debug(status)
+            if status[0]['code'] == 'invalidCredentials':
+                raise ZiggoNextAuthenticationError("Invalid credentials")
+            raise ZiggoNextConnectionError("Connection failed: " + status)
+        else:
             session = response.json()
             self.logger.debug(session)
             self.session = ZiggoNextSession(
                 session["customer"]["householdId"], session["oespToken"]
             )
-        else:
-            raise ZiggoNextConnectionError("Oops")
+        
+            
+        
+
+        
+            
 
     def get_session_and_token(self):
         """Get session and token from Ziggo Next"""
@@ -86,8 +93,8 @@ class ZiggoNext:
         for box in jsonResult["boxes"]:
             if not box["boxType"] == "EOS":
                 continue
-            boxId = box["physicalDeviceId"]
-            self.settopBoxes[boxId] = ZiggoNextBox(boxId, box["customerDefinedName"], self.session.householdId, self.token, self._country_code, self.logger)
+            box_id = box["physicalDeviceId"]
+            self.settop_boxes[box_id] = ZiggoNextBox(box_id, box["customerDefinedName"], self.session.householdId, self.token, self._country_code, self.logger)
 
 
 
@@ -101,7 +108,7 @@ class ZiggoNext:
         if response.status_code == 200:
             return response.json()
         else:
-            raise ZiggoNextError("API call failed: " + str(response.status_code))
+            raise ZiggoNextConnectionError("API call failed: " + str(response.status_code))
     
     def _get_token(self):
         """Get token from Ziggo Next"""
@@ -116,53 +123,53 @@ class ZiggoNext:
         self._register_settop_boxes()
         self.load_channels()
 
-    def _send_key_to_box(self, boxId: str, key: str):
-        self.settopBoxes[boxId].send_key_to_box(key)
+    def _send_key_to_box(self, box_id: str, key: str):
+        self.settop_boxes[box_id].send_key_to_box(key)
 
-    def select_source(self, source, boxId):
+    def select_source(self, source, box_id):
         """Changes te channel from the settopbox"""
         channel = [src for src in self.channels.values() if src.title == source][0]
-        self.settopBoxes[boxId].set_channel(channel.serviceId)
+        self.settop_boxes[box_id].set_channel(channel.serviceId)
 
-    def pause(self, boxId):
+    def pause(self, box_id):
         """Pauses the given settopbox"""
-        box = self.settopBoxes[boxId]
+        box = self.settop_boxes[box_id]
         if box.state == ONLINE_RUNNING and not box.info.paused:
-            self._send_key_to_box(boxId, MEDIA_KEY_PLAY_PAUSE)
+            self._send_key_to_box(box_id, MEDIA_KEY_PLAY_PAUSE)
 
-    def play(self, boxId):
+    def play(self, box_id):
         """Resumes the settopbox"""
-        box = self.settopBoxes[boxId]
+        box = self.settop_boxes[box_id]
         if box.state == ONLINE_RUNNING and box.info.paused:
-            self._send_key_to_box(boxId, MEDIA_KEY_PLAY_PAUSE)
+            self._send_key_to_box(box_id, MEDIA_KEY_PLAY_PAUSE)
 
-    def next_channel(self, boxId):
+    def next_channel(self, box_id):
         """Select the next channel for given settop box."""
-        box = self.settopBoxes[boxId]
+        box = self.settop_boxes[box_id]
         if box.state == ONLINE_RUNNING:
-            self._send_key_to_box(boxId, MEDIA_KEY_CHANNEL_UP)
+            self._send_key_to_box(box_id, MEDIA_KEY_CHANNEL_UP)
 
-    def previous_channel(self, boxId):
+    def previous_channel(self, box_id):
         """Select the previous channel for given settop box."""
-        box = self.settopBoxes[boxId]
+        box = self.settop_boxes[box_id]
         if box.state == ONLINE_RUNNING:
-            self._send_key_to_box(boxId, MEDIA_KEY_CHANNEL_DOWN)
+            self._send_key_to_box(box_id, MEDIA_KEY_CHANNEL_DOWN)
 
-    def turn_on(self, boxId):
+    def turn_on(self, box_id):
         """Turn the settop box on."""
-        box = self.settopBoxes[boxId]
+        box = self.settop_boxes[box_id]
         if box.state == ONLINE_STANDBY:
-            self._send_key_to_box(boxId, MEDIA_KEY_POWER)
+            self._send_key_to_box(box_id, MEDIA_KEY_POWER)
 
-    def turn_off(self, boxId):
+    def turn_off(self, box_id):
         """Turn the settop box off."""
-        box = self.settopBoxes[boxId]
+        box = self.settop_boxes[box_id]
         if box.state == ONLINE_RUNNING:
-           self._send_key_to_box(boxId, MEDIA_KEY_POWER)
+           self._send_key_to_box(box_id, MEDIA_KEY_POWER)
            box.turn_off()
 
-    def is_available(self, boxId):
-        box = self.settopBoxes[boxId]
+    def is_available(self, box_id):
+        box = self.settop_boxes[box_id]
         state = box.state
         return (state == ONLINE_RUNNING or state == ONLINE_STANDBY)
 
@@ -183,7 +190,7 @@ class ZiggoNext:
                     channel["channelNumber"],
                 )
             self.logger.debug("Updated channels.")
-            for box in self.settopBoxes.values():
+            for box in self.settop_boxes.values():
                 box.channels = self.channels
         else:
             self.logger.error("Can't retrieve channels...")

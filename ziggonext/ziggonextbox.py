@@ -20,14 +20,11 @@ from .const import (
     MEDIA_KEY_PLAY_PAUSE,
     MEDIA_KEY_CHANNEL_DOWN,
     MEDIA_KEY_CHANNEL_UP,
-    MEDIA_KEY_POWER
+    MEDIA_KEY_POWER,
+    COUNTRY_URLS_HTTP,
+    COUNTRY_URLS_MQTT
 )
 DEFAULT_PORT = 443
-COUNTRY_URLS = {
-    "nl": "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web",
-    "ch": "https://web-api-prod-obo.horizon.tv/oesp/v3/CH/eng/web",
-    "be": "https://web-api-prod-obo.horizon.tv/oesp/v3/BE/nld/web"
-}
 
 def _makeId(stringLength=10):
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -35,15 +32,15 @@ def _makeId(stringLength=10):
 
 class ZiggoNextBox:
     
-    boxId: str
+    box_id: str
     name: str
     state: str = UNKNOWN
     info: ZiggoNextBoxPlayingInfo
     available: bool = False
     channels: ZiggoChannel = {}
 
-    def __init__(self, boxId:str, name:str, householdId:str, token:str, country_code:str, logger:Logger):
-        self.boxId = boxId
+    def __init__(self, box_id:str, name:str, householdId:str, token:str, country_code:str, logger:Logger):
+        self.box_id = box_id
         self.name = name
         self._householdId = householdId
         self._token = token
@@ -62,11 +59,11 @@ class ZiggoNextBox:
         self.channels = {}
         
 
-    def _createUrls(self, countryCode: str):
-        baseUrl = COUNTRY_URLS[countryCode]
+    def _createUrls(self, country_code: str):
+        baseUrl = COUNTRY_URLS_HTTP[country_code]
         self._api_url_listing_format =  baseUrl + "/listings/?byStationId={stationId}&byScCridImi={id}"
         self._api_url_recording_format =  baseUrl + "/listings/?byScCridImi={id}"
-        self._mqtt_broker = "obomsg.prod.{code}.horizon.tv".format(code = countryCode)
+        self._mqtt_broker = COUNTRY_URLS_MQTT[country_code]
     
     def _on_mqtt_client_connect(self, client, userdata, flags, resultCode):
         """Handling mqtt connect result"""
@@ -114,14 +111,14 @@ class ZiggoNextBox:
     def _update_settopbox_state(self, payload):
         """Registers a new settop box"""
         deviceId = payload["source"]
-        if deviceId != self.boxId:
+        if deviceId != self.box_id:
             return
         state = payload["state"]
         
         if self.state == UNKNOWN:
             self._request_settop_box_state() 
             self._do_subscribe(self._householdId + "/" + self.mqttClientId)
-            baseTopic = self._householdId + "/" + self.boxId
+            baseTopic = self._householdId + "/" + self.box_id
             self._do_subscribe(baseTopic)
             self._do_subscribe(baseTopic + "/status")
         if state == ONLINE_STANDBY :
@@ -134,7 +131,7 @@ class ZiggoNextBox:
     def _request_settop_box_state(self):
         """Sends mqtt message to receive state from settop box"""
         self.logger.debug("Request box state for box " + self.name)
-        topic = self._householdId + "/" + self.boxId
+        topic = self._householdId + "/" + self.box_id
         payload = {
             "id": _makeId(8),
             "type": "CPE.getUiStatus",
@@ -145,7 +142,7 @@ class ZiggoNextBox:
     def _update_settop_box(self, payload):
         """Updates settopbox state"""
         deviceId = payload["source"]
-        if deviceId != self.boxId:
+        if deviceId != self.box_id:
             return
         self.logger.debug(payload)
         statusPayload = payload["status"]
@@ -256,7 +253,7 @@ class ZiggoNextBox:
             + key
             + '","eventType":"keyDownUp"}}'
         )
-        self.mqttClient.publish(self._householdId+ "/" + self.boxId, payload)
+        self.mqttClient.publish(self._householdId+ "/" + self.box_id, payload)
         self._request_settop_box_state()
     
     def set_channel(self, serviceId):
@@ -270,7 +267,7 @@ class ZiggoNextBox:
             + '"},"relativePosition":0,"speed":1}}'
         )
 
-        self.mqttClient.publish(self._householdId + "/" + self.boxId, payload)
+        self.mqttClient.publish(self._householdId + "/" + self.box_id, payload)
         self._request_settop_box_state()
     
     def turn_off(self):
