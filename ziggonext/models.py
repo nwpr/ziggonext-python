@@ -4,33 +4,17 @@ class ZiggoNextSession:
     oespToken: str
 
     def __init__(self, houseHoldId, oespToken):
-        self.houseHoldId = houseHoldId
+        self.householdId = houseHoldId
         self.oespToken = oespToken
 
-class ZiggoNextBox:
-    boxId: str
-    name: str
-    state: object
-    def __init__(self, id, name, state):
-        self.boxId = id
-        self.name = name
-        self.state = state
-    
-    def reset(self, state:str):
-        self.state = ZiggoNextBoxState(self.boxId, state)
-
-class ZiggoNextBoxState:
-    state: str
-    boxId: str
+class ZiggoNextBoxPlayingInfo:
     channelId: str
     title: str
     image: str
     sourceType: str
     paused: bool
 
-    def __init__(self, boxId, state):
-        self.boxId = boxId
-        self.state = state
+    def __init__(self):
         self.channelId = None
         self.title = None
         self.image = None
@@ -40,9 +24,6 @@ class ZiggoNextBoxState:
 
     def setPaused(self, paused: bool):
         self.paused = paused
-
-    def setState(self, state):
-        self.state = state
 
     def setChannel(self, channelId):
         self.channelId = channelId

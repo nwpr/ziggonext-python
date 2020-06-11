@@ -1,6 +1,6 @@
 """Python client for Ziggo Next."""
-class ZiggoNextError(Exception):
+class ZiggoNextConnectionError(Exception):
     pass
 
-class ZiggoNextConnectionError(ZiggoNextError):
+class ZiggoNextAuthenticationError(Exception):
     pass
