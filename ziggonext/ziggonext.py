@@ -182,11 +182,19 @@ class ZiggoNext:
             for channel in content["channels"]:
                 station = channel["stationSchedules"][0]["station"]
                 serviceId = station["serviceId"]
+                streamImage = None
+                channelImage = None
+                for image in station["images"]:
+                    if image["assetType"] == "imageStream":
+                        streamImage = image["url"]
+                    if image["assetType"] == "station-logo-small":
+                        channelImage =  image["url"]
+
                 self.channels[serviceId] = ZiggoChannel(
                     serviceId,
                     channel["title"],
-                    station["images"][0]["url"],
-                    station["images"][2]["url"],
+                    streamImage,
+                    channelImage,
                     channel["channelNumber"],
                 )
             self.logger.debug("Updated channels.")
