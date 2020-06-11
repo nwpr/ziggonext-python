@@ -1,5 +1,6 @@
 """ZiggoNextBox"""
 import paho.mqtt.client as mqtt
+import urllib.parse
 from paho.mqtt.client import Client
 import json
 import requests
@@ -61,8 +62,8 @@ class ZiggoNextBox:
 
     def _createUrls(self, country_code: str):
         baseUrl = COUNTRY_URLS_HTTP[country_code]
-        self._api_url_listing_format =  baseUrl + "/listings/?byStationId={stationId}&byScCridImi={id}"
-        self._api_url_recording_format =  baseUrl + "/listings/?byScCridImi={id}"
+        self._api_url_listing_format =  baseUrl + "/listings/{id}"
+        self._api_url_recording_format =  baseUrl + "/listings/{id}"
         self._mqtt_broker = COUNTRY_URLS_MQTT[country_code]
     
     def _on_mqtt_client_connect(self, client, userdata, flags, resultCode):
@@ -238,12 +239,13 @@ class ZiggoNextBox:
     def _get_channel_title(self, channelId, scCridImi):
         """Get channel title"""
         response = requests.get(
-            self._api_url_listing_format.format(stationId=channelId, id=scCridImi)
+            self._api_url_listing_format.format(id=scCridImi)
         )
+        self.logger.debug("response completed")
         if response.status_code == 200:
             content = response.json()
-            if len(content["listings"]) > 0:
-                return content["listings"][0]["program"]["title"]
+            if "program" in content:
+                return content["program"]["title"]
         return None
     
     def send_key_to_box(self,key: str):
