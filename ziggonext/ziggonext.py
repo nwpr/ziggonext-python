@@ -197,6 +197,21 @@ class ZiggoNext:
                     channelImage,
                     channel["channelNumber"],
                 )
+            self.channels["NL_000073_019506"] = ZiggoChannel(
+                "NL_000073_019506",
+                "Netflix",
+                None,
+                None,
+                "150"
+            )
+
+            self.channels["NL_000074_019507"] = ZiggoChannel(
+                "NL_000074_019507",
+                "Videoland",
+                None,
+                None,
+                "151"
+            )
             self.logger.debug("Updated channels.")
             for box in self.settop_boxes.values():
                 box.channels = self.channels
