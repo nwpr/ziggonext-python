@@ -222,10 +222,11 @@ class ZiggoNextBox:
     
     def _get_recording_title(self, scCridImi):
         """Get recording title."""
+        self.logger.debug("retrieving recording title")
         response = requests.get(self._api_url_recording_format.format(id=scCridImi))
         if response.status_code == 200:
             content = response.json()
-            return content["listings"][0]["program"]["title"]
+            return content["program"]["title"]
         return None
     
     def _get_recording_image(self, scCridImi):
@@ -233,7 +234,7 @@ class ZiggoNextBox:
         response = requests.get(self._api_url_recording_format.format(id=scCridImi))
         if response.status_code == 200:
             content = response.json()
-            return content["listings"][0]["program"]["images"][0]["url"]
+            return content["program"]["images"][0]["url"]
         return None
 
     def _get_channel_title(self, channelId, scCridImi):
@@ -271,6 +272,7 @@ class ZiggoNextBox:
 
         self.mqttClient.publish(self._householdId + "/" + self.box_id, payload)
         self._request_settop_box_state()
+
     
     def turn_off(self):
         self.info = ZiggoNextBoxPlayingInfo()
