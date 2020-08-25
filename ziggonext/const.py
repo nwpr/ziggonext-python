@@ -34,7 +34,8 @@ COUNTRY_URLS_HTTP = {
     "nl": "https://web-api-prod-obo.horizon.tv/oesp/v3/NL/nld/web",
     "ch": "https://web-api-prod-obo.horizon.tv/oesp/v3/CH/eng/web",
     "be-nl": "https://web-api-prod-obo.horizon.tv/oesp/v3/BE/nld/web",
-    "be-fr": "https://web-api-prod-obo.horizon.tv/oesp/v3/BE/fr/web"
+    "be-fr": "https://web-api-prod-obo.horizon.tv/oesp/v3/BE/fr/web",
+    "at": "https://prod.oesp.magentatv.at/oesp/v3/AT/deu/web"
 }
 COUNTRY_URLS_PERSONALIZATION_FORMAT = {
     "nl": "https://prod.spark.ziggogo.tv/nld/web/personalization-service/v1/customer/{household_id}/devices",
@@ -48,5 +49,6 @@ COUNTRY_URLS_MQTT = {
     "nl": "obomsg.prod.nl.horizon.tv",
     "ch": "obomsg.prod.ch.horizon.tv",
     "be-nl": "obomsg.prod.be.horizon.tv",
-    "be-fr": "obomsg.prod.be.horizon.tv"
+    "be-fr": "obomsg.prod.be.horizon.tv",
+    "at": "obomsg.prod.at.horizon.tv"
 }
