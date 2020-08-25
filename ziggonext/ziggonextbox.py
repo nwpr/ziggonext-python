@@ -40,7 +40,7 @@ class ZiggoNextBox:
     available: bool = False
     channels: ZiggoChannel = {}
 
-    def __init__(self, box_id:str, name:str, householdId:str, token:str, country_code:str, logger:Logger):
+    def __init__(self, box_id:str, name:str, householdId:str, token:str, country_code:str, logger:Logger, mqttClient:Client, client_id:str):
         self.box_id = box_id
         self.name = name
         self._householdId = householdId
@@ -49,15 +49,15 @@ class ZiggoNextBox:
         self.logger = logger
         self._mqttClientConnected = False
         self._createUrls(country_code)
-        self.mqttClientId = _makeId(30)
-        self.mqttClient = mqtt.Client(self.mqttClientId, transport="websockets")
-        self.mqttClient.username_pw_set(householdId, token)
-        self.mqttClient.tls_set()
-        self.mqttClient.on_connect = self._on_mqtt_client_connect
-        self.mqttClient.on_disconnect = self._on_mqtt_client_disconnect
-        self.mqttClient.connect(self._mqtt_broker, DEFAULT_PORT)
-        self.mqttClient.loop_start()
-        self.channels = {}
+        self.mqttClientId = client_id
+        self.mqttClient = mqttClient
+        # self.mqttClient.username_pw_set(householdId, token)
+        # self.mqttClient.tls_set()
+        # self.mqttClient.on_connect = self._on_mqtt_client_connect
+        # self.mqttClient.on_disconnect = self._on_mqtt_client_disconnect
+        # self.mqttClient.connect(self._mqtt_broker, DEFAULT_PORT)
+        # self.mqttClient.loop_start()
+        # self.channels = {}
         
 
     def _createUrls(self, country_code: str):
@@ -66,43 +66,20 @@ class ZiggoNextBox:
         self._api_url_recording_format =  baseUrl + "/listings/{id}"
         self._mqtt_broker = COUNTRY_URLS_MQTT[country_code]
     
-    def _on_mqtt_client_connect(self, client, userdata, flags, resultCode):
-        """Handling mqtt connect result"""
-        if resultCode == 0:
-            client.on_message = self._on_mqtt_client_message
-            self.logger.debug("Connected to mqtt client.")
-            self.mqttClientConnected = True
-            payload = {
+    def register(self):
+        payload = {
                 "source": self.mqttClientId,
                 "state": "ONLINE_RUNNING",
                 "deviceType": "HGO",
             }
-            topic = self._householdId + "/" + self.mqttClientId + "/status"
-            self.mqttClient.publish(topic, json.dumps(payload))
-            self._do_subscribe(self._householdId)
-            self._do_subscribe(self._householdId + "/+/status")
+        register_topic = self._householdId + "/" + self.mqttClientId + "/status"
+        self.mqttClient.publish(register_topic, json.dumps(payload))
+        self._do_subscribe(self._householdId)
+        self._do_subscribe(self._householdId + "/+/status")
 
-        elif resultCode == 5:
-            self.logger.debug("Not authorized mqtt client. Retry to connect")
-            client.username_pw_set(self._householdId, self._token)
-            client.connect(self._mqtt_broker, DEFAULT_PORT)
-            client.loop_start()
-        else:
-            raise Exception("Could not connect to Mqtt server")
     
-    def _on_mqtt_client_disconnect(self, client, userdata, resultCode):
-        """Set state to diconnect"""
-        self.logger.debug("Disconnected from mqtt client: " + resultCode)
-        self.mqttClientConnected = False
-
-    def _on_mqtt_client_message(self, client, userdata, message):
-        """Handles messages received by mqtt client"""
-        jsonPayload = json.loads(message.payload)
-        self.logger.debug(jsonPayload)
-        if "deviceType" in jsonPayload and jsonPayload["deviceType"] == "STB":
-            self._update_settopbox_state(jsonPayload)
-        if "status" in jsonPayload:
-            self._update_settop_box(jsonPayload)
+    
+    
     
     def _do_subscribe(self, topic):
         """Subscribes to mqtt topic"""

@@ -1,6 +1,8 @@
 """Python client for Ziggo Next."""
 import json
 from logging import Logger
+from paho.mqtt.client import Client
+import paho.mqtt.client as mqtt
 import random
 import time
 import sys, traceback
@@ -23,6 +25,7 @@ from .const import (
     MEDIA_KEY_CHANNEL_UP,
     MEDIA_KEY_POWER,
     COUNTRY_URLS_HTTP,
+    COUNTRY_URLS_MQTT,
     COUNTRY_URLS_PERSONALIZATION_FORMAT
 )
 
@@ -47,6 +50,7 @@ class ZiggoNext:
         self.settop_boxes = {}
         self.channels = {}
         self._country_code = country_code
+        self.channels = {}
 
     def get_session(self):
         """Get Ziggo Next Session information"""
@@ -81,9 +85,39 @@ class ZiggoNext:
             if not box["platformType"] == "EOS":
                 continue
             box_id = box["deviceId"]
-            self.settop_boxes[box_id] = ZiggoNextBox(box_id, box["settings"]["deviceFriendlyName"], self.session.householdId, self.token, self._country_code, self.logger)
+            self.settop_boxes[box_id] = ZiggoNextBox(box_id, box["settings"]["deviceFriendlyName"], self.session.householdId, self.token, self._country_code, self.logger, self.mqttClient, self.mqttClientId)
 
+    def _on_mqtt_client_connect(self, client, userdata, flags, resultCode):
+        """Handling mqtt connect result"""
+        if resultCode == 0:
+            client.on_message = self._on_mqtt_client_message
+            self.logger.debug("Connected to mqtt client.")
+            self.mqttClientConnected = True
+            for box in self.settop_boxes:
+                box.register()
 
+        elif resultCode == 5:
+            self.logger.debug("Not authorized mqtt client. Retry to connect")
+            client.username_pw_set(self.session.householdId, self.token)
+            client.connect(self._mqtt_broker, DEFAULT_PORT)
+            client.loop_start()
+        else:
+            raise Exception("Could not connect to Mqtt server")
+
+    def _on_mqtt_client_disconnect(self, client, userdata, resultCode):
+        """Set state to diconnect"""
+        self.logger.debug("Disconnected from mqtt client: " + resultCode)
+        self.mqttClientConnected = False
+
+    def _on_mqtt_client_message(self, client, userdata, message):
+        """Handles messages received by mqtt client"""
+        jsonPayload = json.loads(message.payload)
+        deviceId = jsonPayload["source"]
+        self.logger.debug(jsonPayload)
+        if "deviceType" in jsonPayload and jsonPayload["deviceType"] == "STB":
+           self.settop_boxes[deviceId]._update_settopbox_state(jsonPayload)
+        if "status" in jsonPayload:
+            self.settop_boxes[deviceId]._update_settop_box(jsonPayload)
 
     def _do_api_call(self, session, url):
         """Executes api call and returns json object"""
@@ -106,14 +140,24 @@ class ZiggoNext:
     def initialize(self, logger, enableMqttLogging: bool = True):
         """Get token and start mqtt client for receiving data from Ziggo Next"""
         baseUrl = COUNTRY_URLS_HTTP[self._country_code]
+        self._mqtt_broker = COUNTRY_URLS_MQTT[self._country_code]
         self._api_url_session =  baseUrl + "/session"
         self._api_url_token =  baseUrl + "/tokens/jwt"
         self._api_url_channels =  baseUrl + "/channels"
         self.logger = logger
         self.get_session_and_token()
         self._api_url_settop_boxes =  COUNTRY_URLS_PERSONALIZATION_FORMAT[self._country_code].format(household_id=self.session.householdId)
+        self.mqttClientId = _makeId(30)
+        self.mqttClient = mqtt.Client(self.mqttClientId, transport="websockets")
+        self.mqttClient.username_pw_set(self.session.householdId, self.token)
+        self.mqttClient.tls_set()
+        self.mqttClient.on_connect = self._on_mqtt_client_connect
+        self.mqttClient.on_disconnect = self._on_mqtt_client_disconnect
+        self.mqttClient.connect(self._mqtt_broker, DEFAULT_PORT)
         self._register_settop_boxes()
         self.load_channels()
+        
+        self.mqttClient.loop_start()
 
     def _send_key_to_box(self, box_id: str, key: str):
         self.settop_boxes[box_id].send_key_to_box(key)
