@@ -41,7 +41,8 @@ COUNTRY_URLS_PERSONALIZATION_FORMAT = {
     "nl": "https://prod.spark.ziggogo.tv/nld/web/personalization-service/v1/customer/{household_id}/devices",
     "ch": "https://prod.spark.ziggogo.tv/eng/web/personalization-service/v1/customer/{household_id}/devices",
     "be-nl": "https://prod.spark.ziggogo.tv/nld/web/personalization-service/v1/customer/{household_id}/devices",
-    "be-fr": "https://prod.spark.ziggogo.tv/nld/web/personalization-service/v1/customer/{household_id}/devices"
+    "be-fr": "https://prod.spark.ziggogo.tv/nld/web/personalization-service/v1/customer/{household_id}/devices",
+    "at": "https://prod.spark.magentatv.at/deu/web/personalization-service/v1/customer/{household_id}/devices"
 } 
 
 
