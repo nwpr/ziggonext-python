@@ -22,7 +22,8 @@ from .const import (
     MEDIA_KEY_CHANNEL_DOWN,
     MEDIA_KEY_CHANNEL_UP,
     MEDIA_KEY_POWER,
-    COUNTRY_URLS_HTTP
+    COUNTRY_URLS_HTTP,
+    COUNTRY_URLS_PERSONALIZATION_FORMAT
 )
 
 DEFAULT_PORT = 443
@@ -46,14 +47,6 @@ class ZiggoNext:
         self.settop_boxes = {}
         self.channels = {}
         self._country_code = country_code
-        self._createUrls()
-
-    def _createUrls(self):
-        baseUrl = COUNTRY_URLS_HTTP[self._country_code]
-        self._api_url_session =  baseUrl + "/session"
-        self._api_url_token =  baseUrl + "/tokens/jwt"
-        self._api_url_channels =  baseUrl + "/channels"
-        self._api_url_settop_boxes =  baseUrl + "/settopboxes/profile"
 
     def get_session(self):
         """Get Ziggo Next Session information"""
@@ -75,12 +68,6 @@ class ZiggoNext:
             self.session = ZiggoNextSession(
                 session["customer"]["householdId"], session["oespToken"]
             )
-        
-            
-        
-
-        
-            
 
     def get_session_and_token(self):
         """Get session and token from Ziggo Next"""
@@ -90,11 +77,11 @@ class ZiggoNext:
     def _register_settop_boxes(self):
         """Get settopxes"""
         jsonResult = self._do_api_call(self.session, self._api_url_settop_boxes)
-        for box in jsonResult["boxes"]:
-            if not box["boxType"] == "EOS":
+        for box in jsonResult:
+            if not box["platformType"] == "EOS":
                 continue
-            box_id = box["physicalDeviceId"]
-            self.settop_boxes[box_id] = ZiggoNextBox(box_id, box["customerDefinedName"], self.session.householdId, self.token, self._country_code, self.logger)
+            box_id = box["deviceId"]
+            self.settop_boxes[box_id] = ZiggoNextBox(box_id, box["settings"]["deviceFriendlyName"], self.session.householdId, self.token, self._country_code, self.logger)
 
 
 
@@ -118,8 +105,13 @@ class ZiggoNext:
         
     def initialize(self, logger, enableMqttLogging: bool = True):
         """Get token and start mqtt client for receiving data from Ziggo Next"""
+        baseUrl = COUNTRY_URLS_HTTP[self._country_code]
+        self._api_url_session =  baseUrl + "/session"
+        self._api_url_token =  baseUrl + "/tokens/jwt"
+        self._api_url_channels =  baseUrl + "/channels"
         self.logger = logger
         self.get_session_and_token()
+        self._api_url_settop_boxes =  COUNTRY_URLS_PERSONALIZATION_FORMAT[self._country_code].format(household_id=self.session.householdId)
         self._register_settop_boxes()
         self.load_channels()
 
