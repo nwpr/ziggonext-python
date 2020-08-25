@@ -149,6 +149,8 @@ class ZiggoNext:
         self._api_url_settop_boxes =  COUNTRY_URLS_PERSONALIZATION_FORMAT[self._country_code].format(household_id=self.session.householdId)
         self.mqttClientId = _makeId(30)
         self.mqttClient = mqtt.Client(self.mqttClientId, transport="websockets")
+        if enableMqttLogging:
+            self.mqttClient.enable_logger(logger)
         self.mqttClient.username_pw_set(self.session.householdId, self.token)
         self.mqttClient.tls_set()
         self.mqttClient.on_connect = self._on_mqtt_client_connect
